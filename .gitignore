@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Generated model artifacts (tracked via .gitkeep, not the binary files)
+models/*.keras
+models/*.h5
+models/*.pkl
+models/scaler.pkl
+
+# Generated result artifacts (keep metrics.json and .gitkeep, not generated images)
+results/*.png
+results/training_history.csv
+
+# Generated data (keep .gitkeep, not the audio files or pickles)
+data/raw/*/
+data/processed/*.pkl
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+
+# Misc
+*.log
+tmp/
