@@ -13,7 +13,6 @@ Public API
 
 ``predict_from_array(audio)`` → same dict, but accepts a raw numpy waveform.
 """
-
 import os
 import sys
 import logging
@@ -97,7 +96,7 @@ def predict_from_array(
 
     Args:
         audio:      1-D numpy array of audio samples (any length, any dtype).
-        model_path: Path to the saved Keras model (defaults to config value).
+        model_path: Path to the saved model pickle file (defaults to config value).
 
     Returns:
         Dictionary with keys ``predicted_class``, ``predicted_index``,
@@ -112,7 +111,7 @@ def predict_from_array(
 
     features = _audio_to_features(audio)
     model    = _get_model(model_path)
-    proba    = model.predict(features, verbose=0)[0]  # shape: (num_classes,)
+    proba    = model.predict_proba(features)[0]  # shape: (num_classes,)
 
     pred_idx    = int(np.argmax(proba))
     pred_class  = config.PHONEME_CLASSES[pred_idx]
@@ -140,7 +139,7 @@ def predict(
 
     Args:
         audio_path: Path to a WAV or MP3 audio file.
-        model_path: Path to the saved Keras model (defaults to config value).
+        model_path: Path to the saved model pickle file (defaults to config value).
 
     Returns:
         Dictionary with keys ``predicted_class``, ``predicted_index``,
@@ -195,7 +194,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Phoneme inference on an audio file.")
     parser.add_argument("audio_file", help="Path to a WAV or MP3 audio file.")
     parser.add_argument(
-        "--model", default=config.MODEL_PATH, help="Path to the trained model."
+        "--model", default=config.MODEL_PATH, help="Path to the trained model pickle file."
     )
     args = parser.parse_args()
 

@@ -22,10 +22,8 @@ VAL_DATA_PATH   = os.path.join(PROC_DATA_DIR, "val_data.pkl")
 TEST_DATA_PATH  = os.path.join(PROC_DATA_DIR, "test_data.pkl")
 
 # Model output paths
-MODEL_PATH         = os.path.join(MODELS_DIR, "voice_model.keras")
-MODEL_PATH_H5      = os.path.join(MODELS_DIR, "voice_model.h5")
-TRAINING_HISTORY   = os.path.join(RESULTS_DIR, "training_history.csv")
-TRAINING_PLOT      = os.path.join(RESULTS_DIR, "training_curves.png")
+MODEL_PATH         = os.path.join(MODELS_DIR, "voice_model.pkl")
+TRAINING_PLOT      = os.path.join(RESULTS_DIR, "feature_importances.png")
 CONFUSION_MATRIX   = os.path.join(RESULTS_DIR, "confusion_matrix.png")
 METRICS_PATH       = os.path.join(RESULTS_DIR, "metrics.json")
 
@@ -70,16 +68,12 @@ PHONEME_CLASSES = [
 NUM_CLASSES = len(PHONEME_CLASSES)
 
 # ─── Model Architecture ───────────────────────────────────────────────────────
-HIDDEN_UNITS   = [256, 128, 64]   # units in each hidden Dense layer
-DROPOUT_RATE   = 0.3              # dropout probability after each hidden layer
-L2_LAMBDA      = 1e-4             # L2 regularisation weight
+N_ESTIMATORS   = 200    # number of trees in the Random Forest
+MAX_DEPTH      = None   # maximum depth of each tree (None = unlimited)
+MIN_SAMPLES_LEAF = 2    # minimum samples required to be at a leaf node
 
 # ─── Training Parameters ──────────────────────────────────────────────────────
-EPOCHS          = 100
-BATCH_SIZE      = 32
-LEARNING_RATE   = 1e-3
-PATIENCE        = 10   # EarlyStopping patience (epochs without improvement)
-MIN_DELTA       = 1e-4 # minimum improvement to count as an improvement
+# (no epoch-based training for Random Forest)
 
 # ─── Data Generation (synthetic demo) ────────────────────────────────────────
 N_SYNTHETIC_SAMPLES = 500   # synthetic samples per class when no real data available

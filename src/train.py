@@ -1,22 +1,21 @@
 """
 src/train.py
 ────────────
-Training pipeline for the phoneme classification DNN.
+Training pipeline for the phoneme classification Random Forest.
 
 Steps
 -----
 1. Load preprocessed waveforms from pickle files (train / val splits).
 2. Extract MFCC feature vectors and globally standardise them.
-3. Build the Dense Neural Network via ``src/model.py``.
-4. Train with early stopping and model-checkpoint callbacks.
-5. Save the best model weights and training history.
-6. Generate and save loss / accuracy training curves.
+3. Build the Random Forest classifier via ``src/model.py``.
+4. Fit the model on training data.
+5. Save the trained model and evaluate on the validation set.
+6. Generate and save a feature-importance bar chart.
 """
 
 import os
 import sys
 import logging
-import csv
 import json
 
 import numpy as np
@@ -34,34 +33,16 @@ logger = logging.getLogger(__name__)
 # Training
 # ---------------------------------------------------------------------------
 
-def train(
-    epochs: int = config.EPOCHS,
-    batch_size: int = config.BATCH_SIZE,
-    learning_rate: float = config.LEARNING_RATE,
-    patience: int = config.PATIENCE,
-) -> dict:
+def train() -> dict:
     """
     Full training pipeline.
 
-    Loads preprocessed data, extracts features, trains the DNN, saves the
-    model and logs metrics.
-
-    Args:
-        epochs:        Maximum number of training epochs.
-        batch_size:    Mini-batch size.
-        learning_rate: Adam optimiser learning rate.
-        patience:      Early-stopping patience.
+    Loads preprocessed data, extracts features, fits the Random Forest
+    classifier, saves the model and logs metrics.
 
     Returns:
-        Dictionary containing final training and validation accuracy/loss.
+        Dictionary containing training and validation accuracy.
     """
-    import tensorflow as tf
-    from tensorflow.keras.callbacks import (
-        EarlyStopping,
-        ModelCheckpoint,
-        CSVLogger,
-    )
-
     # ── 1. Load data ─────────────────────────────────────────────────────────
     logger.info("Loading preprocessed data …")
     X_train_raw, y_train = load_split_from_file(config.TRAIN_DATA_PATH)
@@ -87,55 +68,27 @@ def train(
     logger.info("Scaler saved → %s", scaler_path)
 
     # ── 3. Build model ────────────────────────────────────────────────────────
-    logger.info("Building model …")
-    model = build_model(
-        input_size=X_train.shape[1],
-        learning_rate=learning_rate,
-    )
-    model.summary(print_fn=logger.info)
+    logger.info("Building Random Forest model …")
+    model = build_model()
 
-    # ── 4. Callbacks ──────────────────────────────────────────────────────────
-    os.makedirs(config.RESULTS_DIR, exist_ok=True)
-    callbacks = [
-        EarlyStopping(
-            monitor="val_loss",
-            patience=patience,
-            min_delta=config.MIN_DELTA,
-            restore_best_weights=True,
-            verbose=1,
-        ),
-        ModelCheckpoint(
-            filepath=config.MODEL_PATH,
-            monitor="val_loss",
-            save_best_only=True,
-            verbose=1,
-        ),
-        CSVLogger(config.TRAINING_HISTORY, append=False),
-    ]
+    # ── 4. Training ───────────────────────────────────────────────────────────
+    logger.info("Fitting model on %d training samples …", len(X_train))
+    model.fit(X_train, y_train)
+    logger.info("Training complete.")
 
-    # ── 5. Training ───────────────────────────────────────────────────────────
-    logger.info("Starting training (max %d epochs, batch_size=%d) …", epochs, batch_size)
-    history = model.fit(
-        X_train,
-        y_train,
-        validation_data=(X_val, y_val),
-        epochs=epochs,
-        batch_size=batch_size,
-        callbacks=callbacks,
-        verbose=1,
-    )
-
-    # ── 6. Save model & plots ─────────────────────────────────────────────────
+    # ── 5. Save model & compute metrics ──────────────────────────────────────
     save_model(model, config.MODEL_PATH)
-    _plot_training_curves(history)
 
-    # Collect final metrics
+    train_accuracy = float(model.score(X_train, y_train))
+    val_accuracy   = float(model.score(X_val, y_val))
+    logger.info("Train accuracy: %.4f | Val accuracy: %.4f", train_accuracy, val_accuracy)
+
+    # ── 6. Feature-importance plot ────────────────────────────────────────────
+    _plot_feature_importances(model)
+
     final_metrics = {
-        "final_train_loss":     float(history.history["loss"][-1]),
-        "final_train_accuracy": float(history.history["accuracy"][-1]),
-        "final_val_loss":       float(history.history["val_loss"][-1]),
-        "final_val_accuracy":   float(history.history["val_accuracy"][-1]),
-        "epochs_trained":       len(history.history["loss"]),
+        "train_accuracy": round(train_accuracy, 4),
+        "val_accuracy":   round(val_accuracy, 4),
     }
     _save_training_metrics(final_metrics)
     logger.info("Training complete.  Final metrics: %s", final_metrics)
@@ -146,44 +99,33 @@ def train(
 # Plotting
 # ---------------------------------------------------------------------------
 
-def _plot_training_curves(history) -> None:
+def _plot_feature_importances(model) -> None:
     """
-    Save a two-panel figure showing loss and accuracy over epochs.
+    Save a bar chart of the top-40 most important MFCC feature dimensions.
 
     Args:
-        history: ``tf.keras.callbacks.History`` object returned by ``model.fit``.
+        model: Fitted ``sklearn.ensemble.RandomForestClassifier``.
     """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    epochs = range(1, len(history.history["loss"]) + 1)
+    importances = model.feature_importances_
+    top_n = min(40, len(importances))
+    indices = np.argsort(importances)[::-1][:top_n]
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
-
-    # Loss
-    ax1.plot(epochs, history.history["loss"],     label="Train loss")
-    ax1.plot(epochs, history.history["val_loss"], label="Val loss")
-    ax1.set_xlabel("Epoch")
-    ax1.set_ylabel("Loss")
-    ax1.set_title("Training and Validation Loss")
-    ax1.legend()
-    ax1.grid(True)
-
-    # Accuracy
-    ax2.plot(epochs, history.history["accuracy"],     label="Train accuracy")
-    ax2.plot(epochs, history.history["val_accuracy"], label="Val accuracy")
-    ax2.set_xlabel("Epoch")
-    ax2.set_ylabel("Accuracy")
-    ax2.set_title("Training and Validation Accuracy")
-    ax2.legend()
-    ax2.grid(True)
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.bar(range(top_n), importances[indices])
+    ax.set_title(f"Top-{top_n} Feature Importances (Random Forest)")
+    ax.set_xlabel("Feature index rank")
+    ax.set_ylabel("Importance")
+    ax.grid(True, axis="y")
 
     plt.tight_layout()
     os.makedirs(config.RESULTS_DIR, exist_ok=True)
     plt.savefig(config.TRAINING_PLOT, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    logger.info("Training curves saved → %s", config.TRAINING_PLOT)
+    logger.info("Feature importances saved → %s", config.TRAINING_PLOT)
 
 
 def _save_training_metrics(metrics: dict) -> None:
