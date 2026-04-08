@@ -1,6 +1,6 @@
 # Voice Recognition Model
 
-A complete **Speech-to-Text** voice recognition system that classifies audio into phoneme categories using a **Dense Neural Network (DNN)** trained on Common Voice dataset samples.
+A complete **Speech-to-Text** voice recognition system that classifies audio into phoneme categories using a **Random Forest classifier** trained on Common Voice dataset samples.
 
 ---
 
@@ -10,7 +10,7 @@ This project demonstrates a full machine-learning pipeline for audio classificat
 
 1. **Data preparation** – generate or download labelled audio samples.
 2. **Feature extraction** – convert raw waveforms to MFCC feature vectors.
-3. **Model training** – train a Dense Neural Network with dropout regularisation.
+3. **Model training** – train a Random Forest classifier.
 4. **Evaluation** – measure accuracy, precision, recall, F1-score, and confusion matrix.
 5. **Inference** – classify new audio files in real time.
 6. **Demo** – interactive script for end-to-end demonstration.
@@ -34,7 +34,7 @@ voice-recognition-model/
 │   ├── __init__.py
 │   ├── preprocess.py          # Audio loading, normalisation, dataset splitting
 │   ├── features.py            # MFCC & spectrogram feature extraction
-│   ├── model.py               # Dense Neural Network architecture
+│   ├── model.py               # Random Forest model
 │   ├── train.py               # Training pipeline
 │   ├── evaluate.py            # Evaluation metrics & plots
 │   └── inference.py           # Inference engine
@@ -64,9 +64,6 @@ voice-recognition-model/
 ```bash
 pip install -r requirements.txt
 ```
-
-> **Note:** If you are on a machine without a GPU, TensorFlow will run on CPU.
-> Training on the synthetic dataset takes only a few minutes on a modern CPU.
 
 ---
 
@@ -109,7 +106,6 @@ python scripts/train_pipeline.py
 Optional arguments:
 
 ```bash
-python scripts/train_pipeline.py --epochs 100 --batch-size 32 --lr 0.001
 python scripts/train_pipeline.py --skip-data        # skip data generation
 python scripts/train_pipeline.py --skip-preprocess  # skip preprocessing
 ```
@@ -155,27 +151,18 @@ jupyter notebook notebooks/exploration.ipynb
 
 ## Model Architecture
 
-```
-Input  (FEATURE_SIZE = N_MFCC x N_FRAMES = 40 x 94 = 3760)
-  |
-  v
-Dense(256, ReLU) -> BatchNorm -> Dropout(0.3)
-  |
-  v
-Dense(128, ReLU) -> BatchNorm -> Dropout(0.3)
-  |
-  v
-Dense(64,  ReLU) -> BatchNorm -> Dropout(0.3)
-  |
-  v
-Dense(10, Softmax)   <- output: probability over 10 phoneme classes
-```
+The model is a **Random Forest classifier** (scikit-learn `RandomForestClassifier`) with the following default configuration:
 
-**Regularisation:** L2 weight decay (lambda = 1e-4) + Dropout (p = 0.3) + Batch Normalisation.
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `n_estimators` | 200 | Number of decision trees |
+| `max_depth` | None | Unlimited depth per tree |
+| `min_samples_leaf` | 2 | Minimum samples at each leaf |
+| `class_weight` | balanced | Handles class imbalance automatically |
 
-**Optimiser:** Adam (lr = 1e-3).
+The classifier operates on flattened MFCC feature vectors of length **3 760** (40 coefficients × 94 time frames).
 
-**Loss:** Sparse Categorical Cross-Entropy.
+**Persistence:** trained models are saved as pickle files (`.pkl`) using Python's `pickle` module.
 
 ---
 
@@ -197,9 +184,8 @@ After training, the following files are generated in `results/`:
 
 | File | Description |
 |------|-------------|
-| `training_curves.png` | Loss and accuracy over epochs |
+| `feature_importances.png` | Top feature importances from the Random Forest |
 | `confusion_matrix.png` | Per-class confusion matrix |
-| `training_history.csv` | Epoch-by-epoch metrics |
 | `metrics.json` | Final accuracy, precision, recall, F1-score |
 
 Example `metrics.json`:
@@ -207,9 +193,8 @@ Example `metrics.json`:
 ```json
 {
   "training": {
-    "final_train_accuracy": 0.92,
-    "final_val_accuracy": 0.87,
-    "epochs_trained": 45
+    "train_accuracy": 0.92,
+    "val_accuracy": 0.87
   },
   "evaluation": {
     "accuracy": 0.85,
@@ -229,14 +214,12 @@ Example `metrics.json`:
 All parameters are centralised in `config.py`:
 
 ```python
-SAMPLE_RATE   = 16000       # Hz
-DURATION      = 3.0         # seconds
-N_MFCC        = 40          # MFCC coefficients
-HIDDEN_UNITS  = [256, 128, 64]
-DROPOUT_RATE  = 0.3
-EPOCHS        = 100
-BATCH_SIZE    = 32
-LEARNING_RATE = 1e-3
+SAMPLE_RATE      = 16000   # Hz
+DURATION         = 3.0     # seconds
+N_MFCC           = 40      # MFCC coefficients
+N_ESTIMATORS     = 200     # number of trees in the Random Forest
+MAX_DEPTH        = None    # maximum depth of each tree (None = unlimited)
+MIN_SAMPLES_LEAF = 2       # minimum samples required at each leaf node
 ```
 
 Edit `config.py` to tune the model without touching source code.
@@ -250,9 +233,8 @@ Edit `config.py` to tune the model without touching source code.
 | `librosa` | Audio loading and feature extraction |
 | `numpy` | Numerical operations |
 | `scipy` | Signal processing helpers |
-| `scikit-learn` | Preprocessing, metrics, train/test split |
+| `scikit-learn` | Random Forest classifier, preprocessing, and metrics |
 | `matplotlib` | Visualisations |
-| `tensorflow` | Dense Neural Network |
 | `pandas` | Data handling |
 | `soundfile` | WAV file I/O |
 | `tqdm` | Progress bars |
@@ -269,4 +251,4 @@ pip install -r requirements.txt
 
 - [Mozilla Common Voice](https://commonvoice.mozilla.org/) for the open speech dataset.
 - [librosa](https://librosa.org/) for excellent audio processing utilities.
-- [TensorFlow / Keras](https://www.tensorflow.org/) for the deep learning framework.
+- [scikit-learn](https://scikit-learn.org/) for the Random Forest classifier and evaluation utilities.

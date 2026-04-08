@@ -20,8 +20,6 @@ ENV/
 *.ipynb_checkpoints
 
 # Generated model artifacts (tracked via .gitkeep, not the binary files)
-models/*.keras
-models/*.h5
 models/*.pkl
 models/scaler.pkl
 
