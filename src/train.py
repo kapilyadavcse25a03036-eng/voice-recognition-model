@@ -1,16 +1,22 @@
 """
 src/train.py
 ────────────
-Training pipeline for the phoneme classification Random Forest.
+STT pipeline orchestration: prepare the dataset manifest and run evaluation.
 
-Steps
+For the Whisper-based STT system, "training" means:
+
+1. Loading the pre-trained Whisper model (weights downloaded automatically).
+2. Running it on the prepared dataset manifest.
+3. Computing WER / CER metrics and saving results.
+
+Fine-tuning Whisper on a custom dataset is an advanced optional step
+documented in the README.  This script focuses on the evaluation workflow
+that verifies the system is working correctly on your data.
+
+Usage
 -----
-1. Load preprocessed waveforms from pickle files (train / val splits).
-2. Extract MFCC feature vectors and globally standardise them.
-3. Build the Random Forest classifier via ``src/model.py``.
-4. Fit the model on training data.
-5. Save the trained model and evaluate on the validation set.
-6. Generate and save a feature-importance bar chart.
+    python src/train.py
+    python src/train.py --model-size small --language en
 """
 
 import os
@@ -18,135 +24,73 @@ import sys
 import logging
 import json
 
-import numpy as np
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config  # noqa: E402
-from src.preprocess import load_split_from_file
-from src.features import extract_features_batch, fit_scaler, apply_scaler
-from src.model import build_model, save_model
+from src.model import save_model_card
+from src.evaluate import evaluate
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Training
+# Pipeline
 # ---------------------------------------------------------------------------
 
-def train() -> dict:
+def run_pipeline(
+    model_size: str = config.WHISPER_MODEL_SIZE,
+    language: str = config.STT_LANGUAGE,
+    manifest_path: str = config.MANIFEST_PATH,
+) -> dict:
     """
-    Full training pipeline.
+    Full STT pipeline: load model → evaluate on manifest → save metrics.
 
-    Loads preprocessed data, extracts features, fits the Random Forest
-    classifier, saves the model and logs metrics.
+    Args:
+        model_size:    Whisper model size (``"tiny"``, ``"base"``, etc.).
+        language:      Target language code (e.g. ``"en"``).
+        manifest_path: Path to the dataset manifest JSON file.
 
     Returns:
-        Dictionary containing training and validation accuracy.
+        Evaluation metrics dictionary.
     """
-    # ── 1. Load data ─────────────────────────────────────────────────────────
-    logger.info("Loading preprocessed data …")
-    X_train_raw, y_train = load_split_from_file(config.TRAIN_DATA_PATH)
-    X_val_raw, y_val     = load_split_from_file(config.VAL_DATA_PATH)
-    logger.info("Train: %d samples | Val: %d samples", len(X_train_raw), len(X_val_raw))
+    logger.info("=== Speech-to-Text Pipeline ===")
+    logger.info("Model size : %s", model_size)
+    logger.info("Language   : %s", language)
+    logger.info("Manifest   : %s", manifest_path)
 
-    # ── 2. Feature extraction ─────────────────────────────────────────────────
-    logger.info("Extracting MFCC features …")
-    X_train = extract_features_batch(X_train_raw)
-    X_val   = extract_features_batch(X_val_raw)
+    # ── 1. Save model card ────────────────────────────────────────────────────
+    save_model_card(size=model_size, device=config.STT_DEVICE)
 
-    # Global standardisation (fit on train only)
-    scaler = fit_scaler(X_train)
-    X_train = apply_scaler(X_train, scaler)
-    X_val   = apply_scaler(X_val, scaler)
+    # ── 2. Evaluate ───────────────────────────────────────────────────────────
+    logger.info("Running evaluation …")
+    metrics = evaluate(
+        manifest_path=manifest_path,
+        model_size=model_size,
+        language=language,
+    )
 
-    # Persist scaler alongside the model
-    import pickle
-    scaler_path = os.path.join(config.MODELS_DIR, "scaler.pkl")
-    os.makedirs(config.MODELS_DIR, exist_ok=True)
-    with open(scaler_path, "wb") as fh:
-        pickle.dump(scaler, fh)
-    logger.info("Scaler saved → %s", scaler_path)
-
-    # ── 3. Build model ────────────────────────────────────────────────────────
-    logger.info("Building Random Forest model …")
-    model = build_model()
-
-    # ── 4. Training ───────────────────────────────────────────────────────────
-    logger.info("Fitting model on %d training samples …", len(X_train))
-    model.fit(X_train, y_train)
-    logger.info("Training complete.")
-
-    # ── 5. Save model & compute metrics ──────────────────────────────────────
-    save_model(model, config.MODEL_PATH)
-
-    train_accuracy = float(model.score(X_train, y_train))
-    val_accuracy   = float(model.score(X_val, y_val))
-    logger.info("Train accuracy: %.4f | Val accuracy: %.4f", train_accuracy, val_accuracy)
-
-    # ── 6. Feature-importance plot ────────────────────────────────────────────
-    _plot_feature_importances(model)
-
-    final_metrics = {
-        "train_accuracy": round(train_accuracy, 4),
-        "val_accuracy":   round(val_accuracy, 4),
-    }
-    _save_training_metrics(final_metrics)
-    logger.info("Training complete.  Final metrics: %s", final_metrics)
-    return final_metrics
-
-
-# ---------------------------------------------------------------------------
-# Plotting
-# ---------------------------------------------------------------------------
-
-def _plot_feature_importances(model) -> None:
-    """
-    Save a bar chart of the top-40 most important MFCC feature dimensions.
-
-    Args:
-        model: Fitted ``sklearn.ensemble.RandomForestClassifier``.
-    """
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    importances = model.feature_importances_
-    top_n = min(40, len(importances))
-    indices = np.argsort(importances)[::-1][:top_n]
-
-    fig, ax = plt.subplots(figsize=(12, 5))
-    ax.bar(range(top_n), importances[indices])
-    ax.set_title(f"Top-{top_n} Feature Importances (Random Forest)")
-    ax.set_xlabel("Feature index rank")
-    ax.set_ylabel("Importance")
-    ax.grid(True, axis="y")
-
-    plt.tight_layout()
+    # ── 3. Persist summary metrics ────────────────────────────────────────────
     os.makedirs(config.RESULTS_DIR, exist_ok=True)
-    plt.savefig(config.TRAINING_PLOT, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    logger.info("Feature importances saved → %s", config.TRAINING_PLOT)
-
-
-def _save_training_metrics(metrics: dict) -> None:
-    """
-    Append or create a JSON file with training summary metrics.
-
-    Args:
-        metrics: Dictionary of metric names to float values.
-    """
-    os.makedirs(config.RESULTS_DIR, exist_ok=True)
+    summary_path = os.path.join(config.RESULTS_DIR, "metrics.json")
     existing = {}
-    if os.path.exists(config.METRICS_PATH):
-        with open(config.METRICS_PATH) as fh:
+    if os.path.exists(summary_path):
+        with open(summary_path) as fh:
             try:
                 existing = json.load(fh)
             except json.JSONDecodeError:
                 pass
-    existing.update({"training": metrics})
-    with open(config.METRICS_PATH, "w") as fh:
+    existing["pipeline"] = {
+        "model_size": model_size,
+        "language":   language,
+        "wer":        metrics.get("wer"),
+        "cer":        metrics.get("cer"),
+        "avg_confidence": metrics.get("avg_confidence"),
+        "num_samples": metrics.get("num_samples"),
+    }
+    with open(summary_path, "w") as fh:
         json.dump(existing, fh, indent=2)
-    logger.info("Training metrics saved → %s", config.METRICS_PATH)
+    logger.info("Summary saved → %s", summary_path)
+
+    return metrics
 
 
 # ---------------------------------------------------------------------------
@@ -154,5 +98,31 @@ def _save_training_metrics(metrics: dict) -> None:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    import argparse
+
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    train()
+
+    parser = argparse.ArgumentParser(description="Run the STT evaluation pipeline.")
+    parser.add_argument(
+        "--model-size",
+        default=config.WHISPER_MODEL_SIZE,
+        help="Whisper model size (tiny/base/small/medium/large).",
+    )
+    parser.add_argument(
+        "--language",
+        default=config.STT_LANGUAGE,
+        help="Language code (e.g. 'en').",
+    )
+    parser.add_argument(
+        "--manifest",
+        default=config.MANIFEST_PATH,
+        help="Path to the dataset manifest JSON file.",
+    )
+    args = parser.parse_args()
+
+    run_pipeline(
+        model_size=args.model_size,
+        language=args.language,
+        manifest_path=args.manifest,
+    )
+

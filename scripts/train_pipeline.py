@@ -1,27 +1,25 @@
 """
 scripts/train_pipeline.py
 ──────────────────────────
-End-to-end training pipeline script.
+End-to-end Speech-to-Text pipeline script.
 
 Steps
 -----
-1. Generate / download raw audio data (``data/download_data.py``).
-2. Preprocess audio and save train / val / test pickle files.
-3. Train the Random Forest classifier.
-4. Evaluate on the test set.
-5. Print a final summary.
+1. Prepare the dataset manifest (download + synthetic TTS generation).
+2. Run Whisper-based STT evaluation on the manifest.
+3. Print a final WER / CER summary.
 
 Usage (from the project root):
     python scripts/train_pipeline.py
+    python scripts/train_pipeline.py --skip-data
+    python scripts/train_pipeline.py --model-size small --language en
 """
 
 import os
 import sys
 import logging
 import argparse
-import json
 
-# Make the project root importable
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
@@ -40,43 +38,23 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def step_data() -> None:
-    """Download / generate synthetic data and check the raw directory."""
+    """Download real samples and/or generate synthetic TTS clips."""
     from data.download_data import main as download_main  # type: ignore
 
     logger.info("=" * 60)
-    logger.info("STEP 1 – Data download / generation")
+    logger.info("STEP 1 – Dataset preparation")
     logger.info("=" * 60)
     download_main()
 
 
-def step_preprocess() -> None:
-    """Preprocess audio files and save pickled train/val/test splits."""
-    from src.preprocess import prepare_dataset
+def step_evaluate(model_size: str, language: str) -> dict:
+    """Run STT evaluation on the prepared manifest and return metrics."""
+    from src.train import run_pipeline
 
     logger.info("=" * 60)
-    logger.info("STEP 2 – Preprocessing")
+    logger.info("STEP 2 – STT Evaluation  (model: %s, lang: %s)", model_size, language)
     logger.info("=" * 60)
-    prepare_dataset()
-
-
-def step_train() -> dict:
-    """Train the Random Forest classifier and return training summary metrics."""
-    from src.train import train
-
-    logger.info("=" * 60)
-    logger.info("STEP 3 – Training")
-    logger.info("=" * 60)
-    return train()
-
-
-def step_evaluate() -> dict:
-    """Evaluate the trained model on the test set."""
-    from src.evaluate import evaluate
-
-    logger.info("=" * 60)
-    logger.info("STEP 4 – Evaluation")
-    logger.info("=" * 60)
-    return evaluate()
+    return run_pipeline(model_size=model_size, language=language)
 
 
 # ---------------------------------------------------------------------------
@@ -85,47 +63,53 @@ def step_evaluate() -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Full training pipeline for the phoneme classification Random Forest."
+        description="Full Speech-to-Text pipeline."
     )
     parser.add_argument(
         "--skip-data",
         action="store_true",
-        help="Skip data download / generation (use existing raw files).",
+        help="Skip dataset preparation (use existing manifest).",
     )
     parser.add_argument(
-        "--skip-preprocess",
-        action="store_true",
-        help="Skip preprocessing (use existing pickle files).",
+        "--model-size",
+        default=config.WHISPER_MODEL_SIZE,
+        help="Whisper model size: tiny / base / small / medium / large.",
+    )
+    parser.add_argument(
+        "--language",
+        default=config.STT_LANGUAGE,
+        help="Target language code (e.g. 'en').  Pass 'auto' for detection.",
     )
     args = parser.parse_args()
 
-    logger.info("Voice Recognition – Full Training Pipeline")
+    language = None if args.language == "auto" else args.language
+
+    logger.info("Voice Recognition – Speech-to-Text Pipeline")
 
     if not args.skip_data:
         step_data()
 
-    if not args.skip_preprocess:
-        step_preprocess()
-
-    train_metrics = step_train()
-
-    eval_metrics = step_evaluate()
+    metrics = step_evaluate(model_size=args.model_size, language=language)
 
     # ── Final summary ──────────────────────────────────────────────────────
     print("\n" + "=" * 60)
     print("PIPELINE COMPLETE")
     print("=" * 60)
-    print(f"  Train accuracy : {train_metrics['train_accuracy']:.4f}")
-    print(f"  Val   accuracy : {train_metrics['val_accuracy']:.4f}")
-    print(f"  Test  accuracy : {eval_metrics['accuracy']:.4f}")
-    print(f"  Test  F1-score : {eval_metrics['f1_score']:.4f}")
+    wer = metrics.get("wer")
+    cer = metrics.get("cer")
+    conf = metrics.get("avg_confidence")
+    n = metrics.get("num_successful", 0)
+    if wer is not None:
+        print(f"  Samples evaluated : {n}")
+        print(f"  WER               : {wer:.4f}")
+        print(f"  CER               : {cer:.4f}")
+        print(f"  Avg confidence    : {conf:.4f}")
     print("=" * 60)
     print(f"\nArtifacts:")
-    print(f"  Model          : {config.MODEL_PATH}")
-    print(f"  Feature importances: {config.TRAINING_PLOT}")
-    print(f"  Confusion matrix: {config.CONFUSION_MATRIX}")
-    print(f"  Metrics JSON   : {config.METRICS_PATH}")
+    print(f"  Model card : {os.path.join(config.MODELS_DIR, 'model_card.json')}")
+    print(f"  Metrics    : {config.METRICS_PATH}")
 
 
 if __name__ == "__main__":
     main()
+

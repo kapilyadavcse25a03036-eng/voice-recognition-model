@@ -1,19 +1,24 @@
-# Voice Recognition Model
+# Voice Recognition – Speech-to-Text System
 
-A complete **Speech-to-Text** voice recognition system that classifies audio into phoneme categories using a **Random Forest classifier** trained on Common Voice dataset samples.
+A complete **Speech-to-Text (STT)** system that transcribes spoken audio into
+text using [OpenAI Whisper](https://github.com/openai/whisper) – a
+state-of-the-art transformer model trained on 680 000 hours of multilingual
+speech.
 
 ---
 
 ## Project Overview
 
-This project demonstrates a full machine-learning pipeline for audio classification:
+This project delivers a full end-to-end speech-to-text pipeline:
 
-1. **Data preparation** – generate or download labelled audio samples.
-2. **Feature extraction** – convert raw waveforms to MFCC feature vectors.
-3. **Model training** – train a Random Forest classifier.
-4. **Evaluation** – measure accuracy, precision, recall, F1-score, and confusion matrix.
-5. **Inference** – classify new audio files in real time.
-6. **Demo** – interactive script for end-to-end demonstration.
+1. **Data preparation** – download LibriSpeech samples and/or generate
+   synthetic TTS clips; write a JSON manifest.
+2. **Transcription** – run Whisper inference on any WAV/MP3 file.
+3. **Evaluation** – compute **WER** (Word Error Rate) and **CER**
+   (Character Error Rate) on a labelled dataset.
+4. **Inference** – transcribe new audio files from the command line or via
+   the Python API.
+5. **Demo** – interactive script for end-to-end demonstration.
 
 ---
 
@@ -26,28 +31,30 @@ voice-recognition-model/
 ├── README.md
 │
 ├── data/
-│   ├── download_data.py       # Download / generate audio data
-│   ├── raw/                   # Raw audio files (per-class sub-directories)
-│   └── processed/             # Preprocessed pickle files
+│   ├── download_data.py       # Download / generate labelled audio dataset
+│   ├── raw/                   # Raw audio files
+│   └── processed/
+│       └── manifest.json      # {"audio": path, "text": transcript} entries
 │
 ├── src/
 │   ├── __init__.py
-│   ├── preprocess.py          # Audio loading, normalisation, dataset splitting
-│   ├── features.py            # MFCC & spectrogram feature extraction
-│   ├── model.py               # Random Forest model
-│   ├── train.py               # Training pipeline
-│   ├── evaluate.py            # Evaluation metrics & plots
-│   └── inference.py           # Inference engine
+│   ├── transcribe.py          # Core Whisper transcription engine
+│   ├── preprocess.py          # Audio loading, normalisation, manifest helpers
+│   ├── features.py            # MFCC & spectrogram extraction (visualisation)
+│   ├── model.py               # Whisper model management & model card
+│   ├── train.py               # STT evaluation / pipeline orchestration
+│   ├── evaluate.py            # WER / CER evaluation pipeline
+│   └── inference.py           # Public inference API
 │
 ├── scripts/
-│   ├── train_pipeline.py      # End-to-end training script
-│   └── demo.py                # Interactive demonstration
+│   ├── train_pipeline.py      # End-to-end STT pipeline script
+│   └── demo.py                # Interactive transcription demo
 │
 ├── notebooks/
 │   └── exploration.ipynb      # Jupyter notebook for exploration
 │
-├── models/                    # Saved model files (generated at runtime)
-└── results/                   # Plots, metrics, training history (generated)
+├── models/                    # Model card JSON (generated at runtime)
+└── results/                   # Metrics JSON, spectrograms (generated)
 ```
 
 ---
@@ -58,6 +65,8 @@ voice-recognition-model/
 
 - Python 3.9 or later
 - pip
+- *(Optional)* `espeak` or `pyttsx3` for synthetic TTS data generation
+- *(Optional)* CUDA GPU for faster Whisper inference
 
 ### Install Dependencies
 
@@ -65,39 +74,37 @@ voice-recognition-model/
 pip install -r requirements.txt
 ```
 
+> **Note:** `torch` is a large dependency (~2 GB).  Whisper weights are
+> downloaded automatically (~140 MB for the `base` model) on first use to
+> `~/.cache/whisper`.
+
 ---
 
 ## Dataset
 
-The project uses two data sources:
+Two data sources are supported:
 
 | Source | Description |
 |--------|-------------|
-| **Synthetic** | Programmatically generated audio clips with characteristic frequency profiles for each phoneme class. Always available, no download required. |
-| **Common Voice** | Mozilla's open speech dataset. Real samples are downloaded automatically when available. |
+| **LibriSpeech test-clean** | Freely available read-speech clips with verified transcripts (downloaded automatically). |
+| **Synthetic TTS** | Short clips generated from a fixed sentence list via `espeak` or `pyttsx3`.  Always works offline. |
 
-### Phoneme Classes (10 categories)
+The manifest format (`data/processed/manifest.json`):
 
-| Index | Class | Description |
-|-------|-------|-------------|
-| 0 | silence | Background / silence |
-| 1 | vowel_open | Open vowels (a, æ) |
-| 2 | vowel_mid | Mid vowels (e, o) |
-| 3 | vowel_close | Close vowels (i, u) |
-| 4 | fricative | Fricatives (s, f, sh) |
-| 5 | plosive | Plosives (p, b, t, d, k, g) |
-| 6 | nasal | Nasals (m, n, ng) |
-| 7 | affricate | Affricates (ch, j) |
-| 8 | approximant | Approximants (r, l, w, y) |
-| 9 | sibilant | Sibilants (z, zh) |
+```json
+[
+  {"audio": "/abs/path/to/clip.wav", "text": "the ground truth transcript"},
+  ...
+]
+```
 
 ---
 
 ## How to Run
 
-### 1. Full Training Pipeline (recommended)
+### 1. Full Pipeline (recommended)
 
-Run the entire pipeline – data generation → preprocessing → training → evaluation:
+Data preparation → STT evaluation → WER/CER report:
 
 ```bash
 python scripts/train_pipeline.py
@@ -106,39 +113,38 @@ python scripts/train_pipeline.py
 Optional arguments:
 
 ```bash
-python scripts/train_pipeline.py --skip-data        # skip data generation
-python scripts/train_pipeline.py --skip-preprocess  # skip preprocessing
+python scripts/train_pipeline.py --skip-data          # skip dataset preparation
+python scripts/train_pipeline.py --model-size small   # use a larger model
+python scripts/train_pipeline.py --language auto      # auto-detect language
 ```
 
 ### 2. Step-by-Step
 
 ```bash
-# Step 1 – Generate data
+# Step 1 – Prepare dataset (downloads + synthetic TTS)
 python data/download_data.py
 
-# Step 2 – Preprocess audio
-python src/preprocess.py
-
-# Step 3 – Train model
-python src/train.py
-
-# Step 4 – Evaluate
+# Step 2 – Evaluate STT on the manifest
 python src/evaluate.py
+
+# Or run the full pipeline from src/train.py
+python src/train.py
 ```
 
-### 3. Inference on a New Audio File
+### 3. Transcribe a Single Audio File
 
 ```bash
 python src/inference.py path/to/audio.wav
+python src/inference.py path/to/audio.wav --model-size small --language en
 ```
 
 ### 4. Interactive Demo
 
 ```bash
-python scripts/demo.py                         # auto demo with synthetic audio
-python scripts/demo.py --audio my_audio.wav   # demo with your own file
-python scripts/demo.py --interactive          # interactive mode
-python scripts/demo.py --train                # force re-training before demo
+python scripts/demo.py                          # auto demo with synthetic audio
+python scripts/demo.py --audio my_audio.wav    # transcribe your own file
+python scripts/demo.py --interactive            # interactive mode
+python scripts/demo.py --model-size small      # use a more accurate model
 ```
 
 ### 5. Jupyter Notebook
@@ -149,63 +155,53 @@ jupyter notebook notebooks/exploration.ipynb
 
 ---
 
-## Model Architecture
+## Model
 
-The model is a **Random Forest classifier** (scikit-learn `RandomForestClassifier`) with the following default configuration:
+The transcription engine is **OpenAI Whisper**, a transformer encoder-decoder
+trained with weak supervision on 680 000 hours of diverse audio.
 
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| `n_estimators` | 200 | Number of decision trees |
-| `max_depth` | None | Unlimited depth per tree |
-| `min_samples_leaf` | 2 | Minimum samples at each leaf |
-| `class_weight` | balanced | Handles class imbalance automatically |
+| Model Size | Parameters | Relative Speed | Recommended Use |
+|------------|-----------|----------------|-----------------|
+| `tiny`     | 39 M      | ~10×           | Quick tests, low-resource devices |
+| `base`     | 74 M      | ~7×            | **Default** – good accuracy/speed tradeoff |
+| `small`    | 244 M     | ~4×            | Better accuracy |
+| `medium`   | 769 M     | ~2×            | High accuracy |
+| `large`    | 1 550 M   | 1×             | Best accuracy |
 
-The classifier operates on flattened MFCC feature vectors of length **3 760** (40 coefficients × 94 time frames).
+Configure the model size in `config.py`:
 
-**Persistence:** trained models are saved as pickle files (`.pkl`) using Python's `pickle` module.
-
----
-
-## Feature Extraction
-
-1. Load audio at 16 kHz, mono.
-2. Peak-normalise waveform to [-1, 1].
-3. Pad / truncate to exactly 3 seconds (48 000 samples).
-4. Compute **MFCC** with 40 coefficients, FFT size 2048, hop 512.
-5. Pad / truncate MFCC matrix to 94 time frames.
-6. Standardise (zero mean, unit variance) using a scaler fitted on training data.
-7. Flatten to a 1-D vector of length **3 760**.
+```python
+WHISPER_MODEL_SIZE = "base"   # change to "small", "medium", etc.
+STT_LANGUAGE       = "en"     # set to None for automatic language detection
+STT_DEVICE         = "cpu"    # change to "cuda" for GPU inference
+```
 
 ---
 
-## Results & Performance Metrics
+## Evaluation Metrics
 
-After training, the following files are generated in `results/`:
+| Metric | Description |
+|--------|-------------|
+| **WER** | Word Error Rate – `(substitutions + deletions + insertions) / reference_words` |
+| **CER** | Character Error Rate – same formula at character level |
+| **Avg Confidence** | Mean Whisper segment log-probability converted to [0, 1] |
 
-| File | Description |
-|------|-------------|
-| `feature_importances.png` | Top feature importances from the Random Forest |
-| `confusion_matrix.png` | Per-class confusion matrix |
-| `metrics.json` | Final accuracy, precision, recall, F1-score |
-
-Example `metrics.json`:
+Results are saved to `results/metrics.json`:
 
 ```json
 {
-  "training": {
-    "train_accuracy": 0.92,
-    "val_accuracy": 0.87
-  },
   "evaluation": {
-    "accuracy": 0.85,
-    "precision": 0.86,
-    "recall": 0.85,
-    "f1_score": 0.85
+    "wer": 0.08,
+    "cer": 0.04,
+    "avg_confidence": 0.72,
+    "num_samples": 23,
+    "num_successful": 23
   }
 }
 ```
 
-> Actual results will vary depending on the dataset and training run.
+> Actual results depend on audio quality, background noise, and model size.
+> The `base` model typically achieves WER < 10 % on clean English speech.
 
 ---
 
@@ -214,15 +210,41 @@ Example `metrics.json`:
 All parameters are centralised in `config.py`:
 
 ```python
-SAMPLE_RATE      = 16000   # Hz
-DURATION         = 3.0     # seconds
-N_MFCC           = 40      # MFCC coefficients
-N_ESTIMATORS     = 200     # number of trees in the Random Forest
-MAX_DEPTH        = None    # maximum depth of each tree (None = unlimited)
-MIN_SAMPLES_LEAF = 2       # minimum samples required at each leaf node
+WHISPER_MODEL_SIZE = "base"   # Whisper model size
+STT_LANGUAGE       = "en"     # transcription language (None = auto-detect)
+STT_DEVICE         = "cpu"    # inference device
+SAMPLE_RATE        = 16000    # Hz – Whisper expects 16 kHz audio
 ```
 
-Edit `config.py` to tune the model without touching source code.
+---
+
+## Python API
+
+```python
+from src.inference import predict, predict_from_array, batch_predict
+
+# Transcribe a file
+result = predict("audio.wav")
+print(result["text"])        # "hello world"
+print(result["confidence"])  # 0.85
+
+# Transcribe a numpy array
+import numpy as np
+audio = np.zeros(16000, dtype=np.float32)   # 1 s of silence
+result = predict_from_array(audio, sr=16000)
+
+# Batch transcription
+results = batch_predict(["clip1.wav", "clip2.wav"])
+```
+
+Result dict keys:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `text` | str | Full transcription |
+| `segments` | list | Timed segments `[{start, end, text}]` |
+| `language` | str | Detected language code (e.g. `"en"`) |
+| `confidence` | float | Mean segment confidence (0–1) |
 
 ---
 
@@ -230,14 +252,14 @@ Edit `config.py` to tune the model without touching source code.
 
 | Package | Purpose |
 |---------|---------|
+| `openai-whisper` | Pre-trained STT model (Whisper) |
+| `torch` | PyTorch – required by Whisper |
 | `librosa` | Audio loading and feature extraction |
 | `numpy` | Numerical operations |
 | `scipy` | Signal processing helpers |
-| `scikit-learn` | Random Forest classifier, preprocessing, and metrics |
+| `scikit-learn` | Evaluation utilities |
 | `matplotlib` | Visualisations |
-| `pandas` | Data handling |
 | `soundfile` | WAV file I/O |
-| `tqdm` | Progress bars |
 
 Install all with:
 
@@ -249,6 +271,7 @@ pip install -r requirements.txt
 
 ## Acknowledgements
 
-- [Mozilla Common Voice](https://commonvoice.mozilla.org/) for the open speech dataset.
+- [OpenAI Whisper](https://github.com/openai/whisper) for the pre-trained STT model.
+- [LibriSpeech](https://www.openslr.org/12/) for the open speech corpus.
 - [librosa](https://librosa.org/) for excellent audio processing utilities.
-- [scikit-learn](https://scikit-learn.org/) for the Random Forest classifier and evaluation utilities.
+

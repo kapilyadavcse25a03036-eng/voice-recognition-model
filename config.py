@@ -1,5 +1,5 @@
 """
-config.py - Centralized configuration for the Speech-to-Text voice recognition project.
+config.py - Centralized configuration for the Speech-to-Text system.
 
 All parameters are defined here for easy tuning without touching the source code.
 """
@@ -16,64 +16,38 @@ MODELS_DIR     = os.path.join(BASE_DIR, "models")
 RESULTS_DIR    = os.path.join(BASE_DIR, "results")
 NOTEBOOKS_DIR  = os.path.join(BASE_DIR, "notebooks")
 
-# Processed data pickle paths
-TRAIN_DATA_PATH = os.path.join(PROC_DATA_DIR, "train_data.pkl")
-VAL_DATA_PATH   = os.path.join(PROC_DATA_DIR, "val_data.pkl")
-TEST_DATA_PATH  = os.path.join(PROC_DATA_DIR, "test_data.pkl")
+# Dataset manifest (JSON list of {"audio": path, "text": transcript} objects)
+MANIFEST_PATH = os.path.join(PROC_DATA_DIR, "manifest.json")
 
-# Model output paths
-MODEL_PATH         = os.path.join(MODELS_DIR, "voice_model.pkl")
-TRAINING_PLOT      = os.path.join(RESULTS_DIR, "feature_importances.png")
-CONFUSION_MATRIX   = os.path.join(RESULTS_DIR, "confusion_matrix.png")
+# Evaluation output paths
 METRICS_PATH       = os.path.join(RESULTS_DIR, "metrics.json")
+SPECTROGRAM_PLOT   = os.path.join(RESULTS_DIR, "spectrogram.png")
 
 # ─── Audio Parameters ─────────────────────────────────────────────────────────
-SAMPLE_RATE    = 16000   # Hz – target sample rate for all audio files
-DURATION       = 3.0     # seconds – clips shorter than this are padded, longer are truncated
-N_SAMPLES      = int(SAMPLE_RATE * DURATION)  # total number of audio samples per clip
+SAMPLE_RATE = 16000   # Hz – Whisper expects 16 kHz mono audio
 
-# ─── MFCC / Feature Parameters ────────────────────────────────────────────────
-N_MFCC    = 40    # number of MFCC coefficients
-N_FFT     = 2048  # FFT window size
-HOP_LENGTH = 512  # frames between consecutive STFT columns
-N_MELS    = 128   # number of Mel filterbank bins (used for spectrogram)
-FMIN      = 0     # lowest frequency for Mel filterbank (Hz)
-FMAX      = 8000  # highest frequency for Mel filterbank (Hz)
+# ─── MFCC / Spectrogram Parameters (used for visualisation) ──────────────────
+N_MFCC     = 40    # number of MFCC coefficients
+N_FFT      = 2048  # FFT window size
+HOP_LENGTH = 512   # frames between consecutive STFT columns
+N_MELS     = 128   # number of Mel filterbank bins
+FMIN       = 0     # lowest frequency for Mel filterbank (Hz)
+FMAX       = 8000  # highest frequency for Mel filterbank (Hz)
 
-# Derived: number of time frames after STFT
-N_FRAMES  = 1 + N_SAMPLES // HOP_LENGTH  # ~94 for 3 s at 16 kHz / 512 hop
+# ─── Whisper STT Model ────────────────────────────────────────────────────────
+# Available sizes (smallest → largest): "tiny", "base", "small", "medium", "large"
+# "base" gives a good speed/accuracy tradeoff for most use-cases.
+WHISPER_MODEL_SIZE = "base"
 
-# Flattened MFCC feature vector length (N_MFCC × N_FRAMES)
-FEATURE_SIZE = N_MFCC * N_FRAMES
+# Target language for transcription.  Set to None for automatic language detection.
+STT_LANGUAGE = "en"
+
+# Device for Whisper inference: "cpu", "cuda", or "mps" (Apple Silicon).
+STT_DEVICE = "cpu"
 
 # ─── Dataset / Split Parameters ───────────────────────────────────────────────
-TRAIN_RATIO = 0.70
-VAL_RATIO   = 0.15
-TEST_RATIO  = 0.15
 RANDOM_SEED = 42
 
-# Phoneme categories (10 broad classes used for this demo)
-PHONEME_CLASSES = [
-    "silence",     # 0 – background / silence
-    "vowel_open",  # 1 – open vowels  (a, æ)
-    "vowel_mid",   # 2 – mid vowels   (e, o)
-    "vowel_close", # 3 – close vowels (i, u)
-    "fricative",   # 4 – fricatives   (s, f, sh)
-    "plosive",     # 5 – plosives     (p, b, t, d, k, g)
-    "nasal",       # 6 – nasals       (m, n, ng)
-    "affricate",   # 7 – affricates   (ch, j)
-    "approximant", # 8 – approximants (r, l, w, y)
-    "sibilant",    # 9 – sibilants    (z, zh)
-]
-NUM_CLASSES = len(PHONEME_CLASSES)
-
-# ─── Model Architecture ───────────────────────────────────────────────────────
-N_ESTIMATORS   = 200    # number of trees in the Random Forest
-MAX_DEPTH      = None   # maximum depth of each tree (None = unlimited)
-MIN_SAMPLES_LEAF = 2    # minimum samples required to be at a leaf node
-
-# ─── Training Parameters ──────────────────────────────────────────────────────
-# (no epoch-based training for Random Forest)
-
-# ─── Data Generation (synthetic demo) ────────────────────────────────────────
-N_SYNTHETIC_SAMPLES = 500   # synthetic samples per class when no real data available
+# Number of synthetic TTS samples to generate per sentence when no real data
+# is available.
+N_SYNTHETIC_SAMPLES = 20

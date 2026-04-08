@@ -1,20 +1,23 @@
 """
 scripts/demo.py
 ───────────────
-Interactive demonstration of the voice recognition system.
+Interactive demonstration of the Speech-to-Text system.
 
-The demo covers three scenarios:
-  1. **Trained model** – if a saved model exists, load it and run inference on
-     a supplied audio file (or a freshly generated synthetic clip).
-  2. **Quick local training** – if no model is found, train a small model on
-     synthetic data, then demonstrate inference.
-  3. **Feature visualisation** – display MFCC and Mel-spectrogram plots for
-     the sample audio.
+Scenarios
+---------
+1. **Transcribe a provided audio file** – supply ``--audio path/to/file.wav``.
+2. **Auto demo** – if no file is given, a synthetic TTS clip is generated and
+   transcribed (requires ``espeak`` or ``pyttsx3``).
+3. **Interactive mode** – repeatedly prompts for an audio file path and
+   prints the transcript.
+4. **Feature visualisation** – saves MFCC and Log-Mel spectrogram plots to
+   ``results/demo_features.png``.
 
 Usage (from the project root):
-    python scripts/demo.py                        # auto mode
+    python scripts/demo.py                        # auto demo
     python scripts/demo.py --audio path/to/file.wav
-    python scripts/demo.py --train               # force re-training
+    python scripts/demo.py --interactive
+    python scripts/demo.py --model-size small
 """
 
 import os
@@ -24,7 +27,6 @@ import argparse
 
 import numpy as np
 
-# Make the project root importable
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
@@ -40,24 +42,23 @@ logger = logging.getLogger(__name__)
 
 def visualise_features(audio: np.ndarray, title: str = "Sample Audio") -> None:
     """
-    Display MFCC and log-Mel spectrogram for an audio waveform.
+    Save MFCC and log-Mel spectrogram plots for an audio waveform.
 
     Args:
-        audio: 1-D float32 waveform (``config.N_SAMPLES`` samples).
+        audio: 1-D float32 waveform at ``config.SAMPLE_RATE`` Hz.
         title: Figure title prefix.
     """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import librosa.display
     from src.features import extract_mfcc, extract_log_mel_spectrogram
 
-    mfcc     = extract_mfcc(audio)
-    log_mel  = extract_log_mel_spectrogram(audio)
+    mfcc    = extract_mfcc(audio)
+    log_mel = extract_log_mel_spectrogram(audio)
 
     fig, axes = plt.subplots(2, 1, figsize=(10, 6))
 
-    # MFCC
-    import librosa.display
     img1 = librosa.display.specshow(
         mfcc, sr=config.SAMPLE_RATE, hop_length=config.HOP_LENGTH,
         x_axis="time", ax=axes[0],
@@ -66,7 +67,6 @@ def visualise_features(audio: np.ndarray, title: str = "Sample Audio") -> None:
     axes[0].set_ylabel("MFCC coefficient")
     plt.colorbar(img1, ax=axes[0], format="%+2.0f")
 
-    # Log-Mel spectrogram
     img2 = librosa.display.specshow(
         log_mel, sr=config.SAMPLE_RATE, hop_length=config.HOP_LENGTH,
         x_axis="time", y_axis="mel", fmin=config.FMIN, fmax=config.FMAX,
@@ -77,7 +77,7 @@ def visualise_features(audio: np.ndarray, title: str = "Sample Audio") -> None:
     plt.colorbar(img2, ax=axes[1], format="%+2.0f dB")
 
     plt.tight_layout()
-    out_path = os.path.join(config.RESULTS_DIR, "demo_features.png")
+    out_path = config.SPECTROGRAM_PLOT
     os.makedirs(config.RESULTS_DIR, exist_ok=True)
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -85,104 +85,77 @@ def visualise_features(audio: np.ndarray, title: str = "Sample Audio") -> None:
 
 
 # ---------------------------------------------------------------------------
-# Quick training on synthetic data (used when no model exists)
-# ---------------------------------------------------------------------------
-
-def quick_train() -> None:
-    """
-    Train a Random Forest on synthetic data so the demo can run without a
-    pre-existing model.
-    """
-    print("\n[Quick Training] Generating synthetic data and training a model …")
-    from data.download_data import generate_synthetic_dataset  # type: ignore
-    from src.preprocess import prepare_dataset
-    from src.train import train
-
-    generate_synthetic_dataset()
-    prepare_dataset()
-    train()
-    print("[Quick Training] Done.\n")
-
-
-# ---------------------------------------------------------------------------
 # Core demo
 # ---------------------------------------------------------------------------
 
-def run_demo(audio_path: str = None, force_train: bool = False) -> None:
+def run_demo(
+    audio_path: str = None,
+    model_size: str = config.WHISPER_MODEL_SIZE,
+) -> None:
     """
-    Run the end-to-end demo.
+    Run the end-to-end STT demo.
 
     Args:
-        audio_path:  Optional path to a WAV/MP3 file to classify.
-                     If None, a synthetic clip is generated automatically.
-        force_train: If True, re-train the model even if one already exists.
+        audio_path:  Path to a WAV/MP3 file.  If ``None``, a synthetic clip
+                     is generated automatically.
+        model_size:  Whisper model size to use.
     """
-    from src.preprocess import preprocess_audio, normalise_audio, pad_or_truncate
-    from src.features import mfcc_to_vector
-    from src.inference import predict_from_array
+    from src.preprocess import load_audio, normalise_audio
+    from src.inference import predict
 
-    # ── 1. Ensure model exists ─────────────────────────────────────────────
-    if force_train or not os.path.exists(config.MODEL_PATH):
-        quick_train()
-
-    if not os.path.exists(config.MODEL_PATH):
-        print("ERROR: Model not found after training.  Aborting demo.")
-        return
-
-    # ── 2. Prepare sample audio ────────────────────────────────────────────
+    # ── 1. Prepare audio ───────────────────────────────────────────────────
     if audio_path and os.path.exists(audio_path):
-        print(f"\n[Demo] Using provided audio file: {audio_path}")
-        audio = preprocess_audio(audio_path)
+        print(f"\n[Demo] Transcribing: {audio_path}")
+        audio = normalise_audio(load_audio(audio_path))
+        target_path = audio_path
     else:
         if audio_path:
-            print(f"  WARNING: {audio_path} not found – using synthetic audio.")
-        print("\n[Demo] Generating synthetic audio sample (class: 'plosive') …")
-        rng = np.random.default_rng(42)
-        t   = np.linspace(0, config.DURATION, config.N_SAMPLES, endpoint=False)
-        # Plosive-like signal: short burst of broadband noise + decay
-        burst = np.zeros(config.N_SAMPLES, dtype=np.float32)
-        burst[:int(0.05 * config.SAMPLE_RATE)] = rng.standard_normal(
-            int(0.05 * config.SAMPLE_RATE)
-        ).astype(np.float32)
-        audio = burst
+            print(f"  WARNING: {audio_path!r} not found – using synthetic audio.")
 
-    audio = normalise_audio(audio)
-    audio = pad_or_truncate(audio)
+        target_path = os.path.join(config.RAW_DATA_DIR, "synthetic", "synthetic_0000.wav")
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
 
-    # ── 3. Visualise features ──────────────────────────────────────────────
+        if not os.path.exists(target_path):
+            print("\n[Demo] Generating synthetic TTS clip …")
+            from data.download_data import _generate_tts_clip  # type: ignore
+            _generate_tts_clip("the quick brown fox jumps over the lazy dog", target_path)
+
+        print(f"\n[Demo] Transcribing synthetic clip: {target_path}")
+        audio = normalise_audio(load_audio(target_path))
+
+    # ── 2. Visualise features ──────────────────────────────────────────────
     print("\n[Demo] Extracting and visualising features …")
     visualise_features(audio, title="Demo Sample")
 
-    # ── 4. Run inference ───────────────────────────────────────────────────
-    print("\n[Demo] Running phoneme prediction …")
-    result = predict_from_array(audio)
+    # ── 3. Transcribe ─────────────────────────────────────────────────────
+    print(f"\n[Demo] Running Whisper ({model_size}) transcription …")
+    result = predict(target_path, model_size=model_size)
 
-    print("\n" + "=" * 50)
-    print("PREDICTION RESULT")
-    print("=" * 50)
-    print(f"  Predicted class : {result['predicted_class']}")
-    print(f"  Confidence      : {result['confidence']:.2%}")
-    print("\n  Class probabilities:")
-    for cls, prob in sorted(result["all_probabilities"].items(),
-                            key=lambda kv: -kv[1]):
-        bar = "█" * int(prob * 30)
-        print(f"    {cls:<15} {prob:.4f}  {bar}")
-    print("=" * 50)
+    print("\n" + "=" * 55)
+    print("TRANSCRIPTION RESULT")
+    print("=" * 55)
+    print(f"  Text       : {result['text']}")
+    print(f"  Language   : {result['language']}")
+    print(f"  Confidence : {result['confidence']:.4f}")
+    if result.get("segments"):
+        print("\n  Timed segments:")
+        for seg in result["segments"]:
+            print(f"    [{seg['start']:6.2f}s – {seg['end']:6.2f}s]  {seg['text']}")
+    print("=" * 55)
 
 
 # ---------------------------------------------------------------------------
 # Interactive mode
 # ---------------------------------------------------------------------------
 
-def interactive_mode() -> None:
-    """
-    Allow the user to provide audio files interactively via the terminal.
-    """
+def interactive_mode(model_size: str = config.WHISPER_MODEL_SIZE) -> None:
+    """Repeatedly prompt for an audio file path and print the transcript."""
     print("\n" + "=" * 60)
-    print("VOICE RECOGNITION – INTERACTIVE DEMO")
+    print("SPEECH-TO-TEXT – INTERACTIVE DEMO")
     print("=" * 60)
-    print("Type the path to an audio file (WAV or MP3) to classify it,")
-    print("or press Enter to use a synthetic sample.  Type 'quit' to exit.\n")
+    print("Enter the path to an audio file (WAV or MP3) to transcribe it.")
+    print("Press Enter with no input to use a synthetic clip.")
+    print("Type 'quit' to exit.\n")
 
     while True:
         try:
@@ -195,7 +168,7 @@ def interactive_mode() -> None:
             print("Goodbye!")
             break
 
-        run_demo(audio_path=user_input if user_input else None)
+        run_demo(audio_path=user_input if user_input else None, model_size=model_size)
         print()
 
 
@@ -204,28 +177,27 @@ def interactive_mode() -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Voice recognition demo script."
+    parser = argparse.ArgumentParser(description="Speech-to-Text demo script.")
+    parser.add_argument(
+        "--audio", default=None, help="Path to a WAV or MP3 audio file to transcribe."
     )
     parser.add_argument(
-        "--audio", default=None, help="Path to a WAV or MP3 audio file to classify."
-    )
-    parser.add_argument(
-        "--train", action="store_true", help="Force re-training before demo."
+        "--model-size",
+        default=config.WHISPER_MODEL_SIZE,
+        help="Whisper model size (tiny/base/small/medium/large).",
     )
     parser.add_argument(
         "--interactive", "-i", action="store_true",
-        help="Enter interactive mode to classify multiple files.",
+        help="Enter interactive mode to transcribe multiple files.",
     )
     args = parser.parse_args()
 
     if args.interactive:
-        if not os.path.exists(config.MODEL_PATH):
-            quick_train()
-        interactive_mode()
+        interactive_mode(model_size=args.model_size)
     else:
-        run_demo(audio_path=args.audio, force_train=args.train)
+        run_demo(audio_path=args.audio, model_size=args.model_size)
 
 
 if __name__ == "__main__":
     main()
+

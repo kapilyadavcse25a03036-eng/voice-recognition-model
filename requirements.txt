@@ -7,3 +7,5 @@ pandas>=2.0.0
 soundfile>=0.12.1
 tqdm>=4.65.0
 joblib>=1.3.0
+openai-whisper>=20231117
+torch>=2.0.0
