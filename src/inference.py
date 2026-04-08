@@ -164,7 +164,7 @@ def batch_predict(
 
     Args:
         audio_paths: List of paths to audio files.
-        model_path:  Path to the saved Keras model.
+        model_path:  Path to the saved model pickle file.
 
     Returns:
         List of prediction dictionaries (one per file), in the same order as
