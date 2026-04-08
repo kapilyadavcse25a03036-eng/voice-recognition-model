@@ -1,7 +1,7 @@
 """
 src/evaluate.py
 ───────────────
-Evaluation pipeline for the trained phoneme classification DNN.
+Evaluation pipeline for the trained phoneme classification model.
 
 Produces
 --------
@@ -39,7 +39,7 @@ def evaluate(
     Evaluate the trained model on the held-out test set.
 
     Args:
-        model_path:     Path to the saved Keras model.
+        model_path:     Path to the saved model pickle file.
         test_data_path: Path to the test-set pickle file.
 
     Returns:
@@ -71,8 +71,7 @@ def evaluate(
         X_test = apply_scaler(X_test, scaler)
 
     # ── 5. Predictions ────────────────────────────────────────────────────────
-    y_pred_proba = model.predict(X_test, verbose=0)
-    y_pred = np.argmax(y_pred_proba, axis=1)
+    y_pred = model.predict(X_test)
 
     # ── 6. Metrics ────────────────────────────────────────────────────────────
     metrics = compute_metrics(y_test, y_pred)

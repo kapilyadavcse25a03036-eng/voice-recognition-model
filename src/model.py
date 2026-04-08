@@ -1,24 +1,21 @@
 """
 src/model.py
 ────────────
-Dense Neural Network (DNN) for phoneme classification.
+Random Forest classifier for phoneme classification.
 
-Architecture
-------------
-Input  →  Dense(256, ReLU) + Dropout  →  Dense(128, ReLU) + Dropout
-       →  Dense(64, ReLU)  + Dropout  →  Dense(NUM_CLASSES, Softmax)
+The model uses scikit-learn's RandomForestClassifier – a classic ensemble
+machine-learning algorithm that requires no deep-learning framework.
 
-Regularisation is applied via:
-* Dropout layers (rate = config.DROPOUT_RATE).
-* L2 weight decay on Dense layers (lambda = config.L2_LAMBDA).
-
-The model is compiled with the Adam optimiser and categorical cross-entropy
-loss for multi-class classification.
+Persistence
+-----------
+Trained models are saved / loaded as pickle files via Python's standard
+``pickle`` module (compatible with ``joblib``).
 """
 
 import os
 import sys
 import logging
+import pickle
 
 import numpy as np
 
@@ -33,65 +30,41 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def build_model(
-    input_size: int = config.FEATURE_SIZE,
-    num_classes: int = config.NUM_CLASSES,
-    hidden_units: list = None,
-    dropout_rate: float = config.DROPOUT_RATE,
-    l2_lambda: float = config.L2_LAMBDA,
-    learning_rate: float = config.LEARNING_RATE,
-) -> "tensorflow.keras.Model":
+    n_estimators: int = config.N_ESTIMATORS,
+    max_depth=config.MAX_DEPTH,
+    min_samples_leaf: int = config.MIN_SAMPLES_LEAF,
+    random_state: int = config.RANDOM_SEED,
+    n_jobs: int = -1,
+):
     """
-    Build and compile the Dense Neural Network for phoneme classification.
+    Build a Random Forest classifier for phoneme classification.
 
     Args:
-        input_size:    Length of the flattened MFCC feature vector.
-        num_classes:   Number of output classes (phoneme categories).
-        hidden_units:  List of units for each hidden Dense layer.
-                       Defaults to ``config.HIDDEN_UNITS``.
-        dropout_rate:  Dropout probability after each hidden layer.
-        l2_lambda:     L2 regularisation coefficient.
-        learning_rate: Adam learning rate.
+        n_estimators:      Number of trees in the forest.
+        max_depth:         Maximum depth of each tree (``None`` = unlimited).
+        min_samples_leaf:  Minimum samples required at each leaf node.
+        random_state:      Random seed for reproducibility.
+        n_jobs:            Number of parallel jobs (``-1`` = all CPUs).
 
     Returns:
-        Compiled ``tf.keras.Sequential`` model.
+        Untrained ``sklearn.ensemble.RandomForestClassifier``.
     """
-    import tensorflow as tf
-    from tensorflow.keras import Sequential
-    from tensorflow.keras.layers import Dense, Dropout, BatchNormalization, Input
-    from tensorflow.keras.regularizers import l2
-    from tensorflow.keras.optimizers import Adam
+    from sklearn.ensemble import RandomForestClassifier
 
-    if hidden_units is None:
-        hidden_units = config.HIDDEN_UNITS
-
-    model = Sequential(name="phoneme_dnn")
-
-    # Input layer
-    model.add(Input(shape=(input_size,), name="mfcc_input"))
-
-    # Hidden layers
-    for i, units in enumerate(hidden_units):
-        model.add(
-            Dense(
-                units,
-                activation="relu",
-                kernel_regularizer=l2(l2_lambda),
-                name=f"dense_{i + 1}",
-            )
-        )
-        model.add(BatchNormalization(name=f"bn_{i + 1}"))
-        model.add(Dropout(dropout_rate, name=f"dropout_{i + 1}"))
-
-    # Output layer
-    model.add(Dense(num_classes, activation="softmax", name="output"))
-
-    # Compile
-    model.compile(
-        optimizer=Adam(learning_rate=learning_rate),
-        loss="sparse_categorical_crossentropy",
-        metrics=["accuracy"],
+    model = RandomForestClassifier(
+        n_estimators=n_estimators,
+        max_depth=max_depth,
+        min_samples_leaf=min_samples_leaf,
+        random_state=random_state,
+        class_weight="balanced",
+        n_jobs=n_jobs,
     )
-
+    logger.info(
+        "Random Forest: n_estimators=%d  max_depth=%s  min_samples_leaf=%d",
+        n_estimators,
+        max_depth,
+        min_samples_leaf,
+    )
     return model
 
 
@@ -101,56 +74,37 @@ def build_model(
 
 def save_model(model, path: str = config.MODEL_PATH) -> None:
     """
-    Save a Keras model to disk (native Keras format or H5).
+    Save a scikit-learn model to disk using pickle.
 
     Args:
-        model: Trained ``tf.keras.Model`` instance.
+        model: Trained scikit-learn estimator.
         path:  Destination file path.
     """
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    model.save(path)
+    with open(path, "wb") as fh:
+        pickle.dump(model, fh, protocol=pickle.HIGHEST_PROTOCOL)
     logger.info("Model saved → %s", path)
 
 
-def load_model(path: str = config.MODEL_PATH) -> "tensorflow.keras.Model":
+def load_model(path: str = config.MODEL_PATH):
     """
-    Load a Keras model from disk.
+    Load a scikit-learn model from disk.
 
     Args:
-        path: Path to the saved model file.
+        path: Path to the saved pickle file.
 
     Returns:
-        Loaded ``tf.keras.Model``.
+        Loaded scikit-learn estimator.
 
     Raises:
         FileNotFoundError: If *path* does not exist.
     """
-    import tensorflow as tf
-
     if not os.path.exists(path):
         raise FileNotFoundError(f"Model file not found: {path}")
-    model = tf.keras.models.load_model(path)
+    with open(path, "rb") as fh:
+        model = pickle.load(fh)
     logger.info("Model loaded ← %s", path)
     return model
-
-
-# ---------------------------------------------------------------------------
-# Utility
-# ---------------------------------------------------------------------------
-
-def get_model_summary(model) -> str:
-    """
-    Return the model summary as a string.
-
-    Args:
-        model: ``tf.keras.Model`` instance.
-
-    Returns:
-        Multi-line string with layer names, output shapes, and parameter counts.
-    """
-    lines = []
-    model.summary(print_fn=lambda x: lines.append(x))
-    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -161,13 +115,15 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     model = build_model()
-    summary = get_model_summary(model)
-    logger.info("\n%s", summary)
+    logger.info("Model: %s", model)
 
-    # Forward pass with random data
+    # Quick fit with random data
     rng = np.random.default_rng(0)
-    dummy = rng.standard_normal((4, config.FEATURE_SIZE)).astype(np.float32)
-    probs = model.predict(dummy, verbose=0)
-    logger.info("Output shape: %s  (expected: (4, %d))", probs.shape, config.NUM_CLASSES)
-    logger.info("Row sums (should all be ~1.0): %s", probs.sum(axis=1))
+    X_dummy = rng.standard_normal((40, config.FEATURE_SIZE)).astype(np.float32)
+    y_dummy = rng.integers(0, config.NUM_CLASSES, size=40)
+    model.fit(X_dummy, y_dummy)
+
+    proba = model.predict_proba(X_dummy[:4])
+    logger.info("Output shape: %s  (expected: (4, %d))", proba.shape, config.NUM_CLASSES)
+    logger.info("Row sums (should all be ~1.0): %s", proba.sum(axis=1))
     logger.info("Smoke-test passed.")

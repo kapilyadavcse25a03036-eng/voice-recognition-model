@@ -6,8 +6,8 @@ Interactive demonstration of the voice recognition system.
 The demo covers three scenarios:
   1. **Trained model** – if a saved model exists, load it and run inference on
      a supplied audio file (or a freshly generated synthetic clip).
-  2. **Quick local training** – if no model is found, train a small model in
-     ~30 seconds on synthetic data, then demonstrate inference.
+  2. **Quick local training** – if no model is found, train a small model on
+     synthetic data, then demonstrate inference.
   3. **Feature visualisation** – display MFCC and Mel-spectrogram plots for
      the sample audio.
 
@@ -90,17 +90,17 @@ def visualise_features(audio: np.ndarray, title: str = "Sample Audio") -> None:
 
 def quick_train() -> None:
     """
-    Train a small DNN on synthetic data so the demo can run without a
-    pre-existing model.  Takes ~30–90 s on a typical laptop CPU.
+    Train a Random Forest on synthetic data so the demo can run without a
+    pre-existing model.
     """
-    print("\n[Quick Training] Generating synthetic data and training a small model …")
+    print("\n[Quick Training] Generating synthetic data and training a model …")
     from data.download_data import generate_synthetic_dataset  # type: ignore
     from src.preprocess import prepare_dataset
     from src.train import train
 
     generate_synthetic_dataset()
     prepare_dataset()
-    train(epochs=20, batch_size=32)
+    train()
     print("[Quick Training] Done.\n")
 
 

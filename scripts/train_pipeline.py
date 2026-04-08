@@ -7,13 +7,12 @@ Steps
 -----
 1. Generate / download raw audio data (``data/download_data.py``).
 2. Preprocess audio and save train / val / test pickle files.
-3. Train the Dense Neural Network.
+3. Train the Random Forest classifier.
 4. Evaluate on the test set.
 5. Print a final summary.
 
 Usage (from the project root):
     python scripts/train_pipeline.py
-    python scripts/train_pipeline.py --epochs 50 --batch-size 32
 """
 
 import os
@@ -60,14 +59,14 @@ def step_preprocess() -> None:
     prepare_dataset()
 
 
-def step_train(epochs: int, batch_size: int, learning_rate: float) -> dict:
-    """Train the DNN and return training summary metrics."""
+def step_train() -> dict:
+    """Train the Random Forest classifier and return training summary metrics."""
     from src.train import train
 
     logger.info("=" * 60)
     logger.info("STEP 3 – Training")
     logger.info("=" * 60)
-    return train(epochs=epochs, batch_size=batch_size, learning_rate=learning_rate)
+    return train()
 
 
 def step_evaluate() -> dict:
@@ -86,16 +85,7 @@ def step_evaluate() -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Full training pipeline for the phoneme classification DNN."
-    )
-    parser.add_argument(
-        "--epochs", type=int, default=config.EPOCHS, help="Max training epochs."
-    )
-    parser.add_argument(
-        "--batch-size", type=int, default=config.BATCH_SIZE, help="Mini-batch size."
-    )
-    parser.add_argument(
-        "--lr", type=float, default=config.LEARNING_RATE, help="Learning rate."
+        description="Full training pipeline for the phoneme classification Random Forest."
     )
     parser.add_argument(
         "--skip-data",
@@ -110,8 +100,6 @@ def main() -> None:
     args = parser.parse_args()
 
     logger.info("Voice Recognition – Full Training Pipeline")
-    logger.info("Config: epochs=%d  batch_size=%d  lr=%.4f",
-                args.epochs, args.batch_size, args.lr)
 
     if not args.skip_data:
         step_data()
@@ -119,11 +107,7 @@ def main() -> None:
     if not args.skip_preprocess:
         step_preprocess()
 
-    train_metrics = step_train(
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        learning_rate=args.lr,
-    )
+    train_metrics = step_train()
 
     eval_metrics = step_evaluate()
 
@@ -131,15 +115,14 @@ def main() -> None:
     print("\n" + "=" * 60)
     print("PIPELINE COMPLETE")
     print("=" * 60)
-    print(f"  Train accuracy : {train_metrics['final_train_accuracy']:.4f}")
-    print(f"  Val   accuracy : {train_metrics['final_val_accuracy']:.4f}")
+    print(f"  Train accuracy : {train_metrics['train_accuracy']:.4f}")
+    print(f"  Val   accuracy : {train_metrics['val_accuracy']:.4f}")
     print(f"  Test  accuracy : {eval_metrics['accuracy']:.4f}")
     print(f"  Test  F1-score : {eval_metrics['f1_score']:.4f}")
-    print(f"  Epochs trained : {train_metrics['epochs_trained']}")
     print("=" * 60)
     print(f"\nArtifacts:")
     print(f"  Model          : {config.MODEL_PATH}")
-    print(f"  Training curves: {config.TRAINING_PLOT}")
+    print(f"  Feature imports: {config.TRAINING_PLOT}")
     print(f"  Confusion matrix: {config.CONFUSION_MATRIX}")
     print(f"  Metrics JSON   : {config.METRICS_PATH}")
 
