@@ -6,13 +6,12 @@ Feature extraction utilities for audio-based phoneme classification.
 Supported features
 ------------------
 * **MFCC** (Mel-Frequency Cepstral Coefficients) – primary feature used by
-  the Dense Neural Network.
-* **Log-Mel spectrogram** – useful for visual exploration and CNN-based
-  models.
+  the Random Forest classifier.
+* **Log-Mel spectrogram** – useful for visual exploration.
 * **Chroma** – pitch-class profile (supplementary).
 
 All feature arrays are normalised (zero-mean, unit-variance per feature
-dimension) and returned as fixed-length 1-D vectors ready for the DNN input.
+dimension) and returned as fixed-length 1-D vectors ready for the classifier.
 """
 
 import os
