@@ -122,7 +122,7 @@ def main() -> None:
     print("=" * 60)
     print(f"\nArtifacts:")
     print(f"  Model          : {config.MODEL_PATH}")
-    print(f"  Feature imports: {config.TRAINING_PLOT}")
+    print(f"  Feature importances: {config.TRAINING_PLOT}")
     print(f"  Confusion matrix: {config.CONFUSION_MATRIX}")
     print(f"  Metrics JSON   : {config.METRICS_PATH}")
 

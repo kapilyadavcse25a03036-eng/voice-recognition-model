@@ -4,7 +4,7 @@ src/model.py
 Random Forest classifier for phoneme classification.
 
 The model uses scikit-learn's RandomForestClassifier – a classic ensemble
-machine-learning algorithm that requires no deep-learning framework.
+machine learning algorithm that requires no deep learning framework.
 
 Persistence
 -----------
@@ -16,6 +16,7 @@ import os
 import sys
 import logging
 import pickle
+from typing import Optional
 
 import numpy as np
 
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 def build_model(
     n_estimators: int = config.N_ESTIMATORS,
-    max_depth=config.MAX_DEPTH,
+    max_depth: Optional[int] = config.MAX_DEPTH,
     min_samples_leaf: int = config.MIN_SAMPLES_LEAF,
     random_state: int = config.RANDOM_SEED,
     n_jobs: int = -1,
