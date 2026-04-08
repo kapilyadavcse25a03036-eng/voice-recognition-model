@@ -1,0 +1,10 @@
+{
+  "training": {
+    "final_train_loss": 0.08052957057952881,
+    "final_train_accuracy": 1.0,
+    "final_val_loss": 0.07238224148750305,
+    "final_val_accuracy": 1.0,
+    "epochs_trained": 100
+  },
+  "evaluation": {}
+}
